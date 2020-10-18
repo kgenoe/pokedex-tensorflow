@@ -61,35 +61,35 @@ val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
 
 
-# Create the model
-
-model = Sequential([
-
-  # Normalize image size
-  # layers.experimental.preprocessing.Resizing(img_height, img_width),
-
-  # Normalize RGB values [1-255] to between 0-1
-  layers.experimental.preprocessing.Rescaling(1./255, input_shape=(img_height, img_width, 3)),
-  
-  # Data augmentation to expose more aspects of a limited data set (helps with overfit)
-  layers.experimental.preprocessing.RandomFlip("horizontal", input_shape=(img_height, img_width, 3)),
-  layers.experimental.preprocessing.RandomRotation(0.2),
-  layers.experimental.preprocessing.RandomZoom(0.1),
-  
-  layers.Conv2D(16, 3, padding='same', activation='relu'),
-  layers.MaxPooling2D(),
-  layers.Conv2D(32, 3, padding='same', activation='relu'),
-  layers.MaxPooling2D(),
-  layers.Conv2D(64, 3, padding='same', activation='relu'),
-  layers.MaxPooling2D(),
-
-  # Randomly drops % of output units during training,
-  layers.Dropout(0.2),
-
-  layers.Flatten(),
-  layers.Dense(128, activation='relu'),
-  layers.Dense(num_classes)
+## Create the model
+data_augmentation = tf.keras.Sequential([
+  tf.keras.layers.experimental.preprocessing.RandomFlip('horizontal'),
+  tf.keras.layers.experimental.preprocessing.RandomRotation(0.2),
 ])
+
+rescale = tf.keras.layers.experimental.preprocessing.Rescaling(1./127.5, offset= -1)
+
+# Create the base model from the pre-trained model MobileNet V2
+IMG_SIZE = (160, 160)
+IMG_SHAPE = IMG_SIZE + (3,)
+base_model = tf.keras.applications.MobileNetV2(input_shape=IMG_SHAPE,
+                                                include_top=False,
+                                                weights='imagenet')
+
+base_model.trainable = False
+
+global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
+
+prediction_layer = tf.keras.layers.Dense(num_classes)
+
+inputs = tf.keras.Input(shape=(160, 160, 3))
+x = data_augmentation(inputs)
+x = rescale(x)
+x = base_model(x, training=False)
+x = global_average_layer(x)
+x = tf.keras.layers.Dropout(0.2)(x)
+outputs = prediction_layer(x)
+model = tf.keras.Model(inputs, outputs)
 
 
 # Compile the model
