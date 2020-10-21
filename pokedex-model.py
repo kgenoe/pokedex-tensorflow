@@ -7,6 +7,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.models import Sequential
 
+import coremltools as ct
 
 ############################################################
 #
@@ -19,20 +20,21 @@ from tensorflow.keras.models import Sequential
 
 # set path to data directory
 import pathlib
-data_dir = pathlib.Path("TestData30/")
+data_name = "DataAll"
+data_dir_name = data_name + "/"
+data_dir = pathlib.Path(data_dir_name)
 
 
 ## Load Images
 batch_size = 32
-img_height = 160
-img_width = 160
+img_size = 160
 
 train_ds = tf.keras.preprocessing.image_dataset_from_directory(
   data_dir,
   validation_split=0.2,
   subset="training",
   seed=123,
-  image_size=(img_height, img_width),
+  image_size=(img_size, img_size),
   batch_size=batch_size)
 
 val_ds = tf.keras.preprocessing.image_dataset_from_directory(
@@ -40,7 +42,7 @@ val_ds = tf.keras.preprocessing.image_dataset_from_directory(
   validation_split=0.2,
   subset="validation",
   seed=123,
-  image_size=(img_height, img_width),
+  image_size=(img_size, img_size),
   batch_size=batch_size)
 
 
@@ -48,7 +50,6 @@ val_ds = tf.keras.preprocessing.image_dataset_from_directory(
 class_names = train_ds.class_names
 num_classes = len(class_names)
 print("Importing ", num_classes, " classes")
-# print(class_names)
 
 
 ## Configure dataset for performance
@@ -67,12 +68,13 @@ data_augmentation = tf.keras.Sequential([
   tf.keras.layers.experimental.preprocessing.RandomRotation(0.2),
 ])
 
+resize = tf.keras.layers.experimental.preprocessing.Resizing(img_size, img_size)
+
 rescale = tf.keras.layers.experimental.preprocessing.Rescaling(1./127.5, offset= -1)
 
 # Create the base model from the pre-trained model MobileNet V2
-IMG_SIZE = (160, 160)
-IMG_SHAPE = IMG_SIZE + (3,)
-base_model = tf.keras.applications.MobileNetV2(input_shape=IMG_SHAPE,
+img_shape = (img_size, img_size, 3)
+base_model = tf.keras.applications.MobileNetV2(input_shape=img_shape,
                                                 include_top=False,
                                                 weights='imagenet')
 
@@ -82,9 +84,10 @@ global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
 
 prediction_layer = tf.keras.layers.Dense(num_classes)
 
-inputs = tf.keras.Input(shape=(160, 160, 3))
-x = data_augmentation(inputs)
+inputs = tf.keras.Input(shape=img_shape)
+x = resize(inputs)
 x = rescale(x)
+x = data_augmentation(x)
 x = base_model(x, training=False)
 x = global_average_layer(x)
 x = tf.keras.layers.Dropout(0.2)(x)
@@ -102,10 +105,8 @@ model.compile(optimizer='adam',
 model.summary()
 
 
-
-
 ## Train the model
-epochs=20
+epochs=10
 history = model.fit(
   train_ds,
   validation_data=val_ds,
@@ -131,3 +132,26 @@ print(['%.2f' % elem for elem in val_acc])
 # print("Validation Loss:")
 # print(['%.2f' % elem for elem in val_loss])
 # print("")
+
+
+# save keras model
+model_name = 'pokedex-' + data_name
+h5_model_name = model_name + '.h5'
+model.save(h5_model_name) 
+
+# Output model as coreml
+image_input = [ct.ImageType(shape=(1, img_size, img_size, 3,),)]
+classifier_config = ct.ClassifierConfig(class_names)
+mlmodel = ct.convert(model,
+                    inputs=image_input,
+                    classifier_config=classifier_config)
+
+
+## test coreml model on a test image 
+# from PIL import Image
+# test_image = Image.open("TestImages/1.png").resize((img_shape, img_shape))
+# out_dict = mlmodel.predict({"input_2": test_image})
+# print(out_dict)
+
+ml_model_name = model_name + '.mlmodel'
+mlmodel.save(ml_model_name)
